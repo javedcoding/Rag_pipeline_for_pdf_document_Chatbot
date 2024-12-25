@@ -219,6 +219,7 @@ python-json-logger=3.2.1=py310haa95532_0
 python-lsp-black=2.0.0=py310haa95532_0
 python-lsp-jsonrpc=1.1.2=pyhd3eb1b0_0
 python-lsp-server=1.12.0=py310h9909e9c_0
+python-multipart=0.0.20=pypi_0
 python-slugify=5.0.2=pyhd3eb1b0_0
 pytoolconfig=1.2.6=py310haa95532_0
 pytz=2024.1=py310haa95532_0
