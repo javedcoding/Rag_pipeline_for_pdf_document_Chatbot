@@ -33,4 +33,40 @@ This application is running on a local machine. My machine is quite strong to ha
 
 
 ## How the Application works
-At first the application downloads the file from the google drive
+At first the application downloads the file from the google drive. In the model.py file you may check this Function "extract_file(link, fileName, output_folder="downloads")" for your Downloadable file.
+Later having the extracted Chapters pages [Function "detect_selected_chapter_pages"] the pdf will be loaded with PyPDFLoader of Langchain Community library.
+
+### Models Used:
+| Model Names | Using Purpose |
+| ------------- | ------------- |
+| BM25Retriever  | For Extracting Sparse Embeddings of Document Chunks Keyword Searching |
+| BAAI/bge-large-en-v1.5  | For Extracting Dense Embeddings of Document Chunks  |
+| HuggingFaceH4/zephyr-7b-beta  | For LLM final result  |
+
+With the hybrid search EnsembleRetriever of Langchain dense_weight=0.6, sparse_weight=0.4 weights are given. Keyword search is less important than the context for this work that is why dense embeddings has slightly higher weights given. Then the Huggingface tockenizer is used for chunks tocknizing and the pipeline is below:
+
+```
+main_pipeline = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        use_cache=True,
+        device_map="auto",
+        max_length=2048,
+        do_sample=True,
+        top_k=5,
+        num_return_sequences=1,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id,
+        )
+```
+
+The final result is comming out of the below Hybrid Rag pipeline:
+```
+hybrid_chain=RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=ensemble_retriever
+        )
+```
+The file main.py holds the calling of the functions of model.py with some error handling for FastAPI frontend.
