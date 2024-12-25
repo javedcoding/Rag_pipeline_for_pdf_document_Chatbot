@@ -1,0 +1,76 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec 22 15:11:19 2024
+
+@author: mashn
+"""
+
+from threading import Thread
+from typing import Union
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from model import load_quantized_llm_model, rag_pipeline
+
+
+
+app = FastAPI()
+model_and_tokenizer = {"model": None, "tokenizer": None, "loaded": False}
+rag_inference_pipeline = None
+
+
+
+
+def start_llm_loading():
+    global model_and_tokenizer
+    try:
+        model, tokenizer = load_quantized_llm_model()
+        model_and_tokenizer["model"] = model
+        model_and_tokenizer["tokenizer"] = tokenizer
+        model_and_tokenizer["loaded"] = True
+        print("Model and tokenizer loaded successfully.")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+    
+def is_model_ready():
+    return model_and_tokenizer["loaded"]
+
+@app.on_event("startup")
+async def startup_event():
+    global rag_inference_pipeline
+    thread = Thread(target=start_llm_loading, daemon=True)
+    thread.start()
+    print("Waiting for model to load...")
+    while not is_model_ready():
+        pass
+    
+    try:
+        # Initialize the RAG pipeline
+        rag_inference_pipeline = rag_pipeline(model_and_tokenizer["model"], model_and_tokenizer["tokenizer"])
+        print("RAG pipeline loaded successfully.")
+    except Exception as e:
+        print(f"Error loading RAG pipeline: {e}")
+        rag_inference_pipeline = None
+
+
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to the RAG pipeline API"}
+
+
+
+@app.post("/ask")
+async def ask(text: str):
+    
+    global rag_inference_pipeline
+    
+    
+    if rag_inference_pipeline is None:
+        raise HTTPException(status_code=500, detail="RAG pipeline is not available.")
+    try:
+        # Ensure `invoke` is the correct method and accept parameters like `text`
+        result = rag_inference_pipeline.invoke(text)
+        return {"answer": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during inference: {e}")
+        
