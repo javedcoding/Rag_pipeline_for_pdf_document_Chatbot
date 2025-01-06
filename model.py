@@ -2,21 +2,28 @@
 """
 Created on Sun Dec 22 13:08:40 2024
 
-@author: mashn
+@author: Mashnunul Huq
 """
-
+#PDF handling related libraries
 import gdown
 import os
 import pdfplumber
 from langchain_community.document_loaders import PyPDFLoader
+#Database Related Libraries
+import weaviate
+from weaviate.classes.init import Auth
+from langchain_weaviate.vectorstores import WeaviateVectorStore
+#RAG Retriever Related Libraries
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceInferenceAPIEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.retrievers import BM25Retriever, EnsembleRetriever
-import torch
-from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, pipeline, )
-from langchain import HuggingFacePipeline
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain_cohere import CohereRerank
 from langchain.chains import RetrievalQA
+#LLM Related Libraries
+import torch
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from transformers import ( AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, pipeline, )
+
 
 def extract_file(link, fileName, output_folder="downloads"):
     '''
@@ -46,7 +53,7 @@ def extract_file(link, fileName, output_folder="downloads"):
             else:
                 return downloaded_files 
             
-def detect_selected_chapter_pages(starting_chapter_number, ending_chapter_number, chapter_keyword="CHAPTER"):
+def detect_selected_chapter_pages(starting_chapter_number=1, ending_chapter_number=5, chapter_keyword="CHAPTER"):
     '''
     This Function finds out the First page of the first chapter and last page of the last chapter
 
@@ -79,48 +86,84 @@ def detect_selected_chapter_pages(starting_chapter_number, ending_chapter_number
                     break
         if ending_page_number is None:
             ending_page_number = len(pdf.pages)
+
+        print(f"from page {starting_page_number} to {ending_page_number}.")
     return starting_page_number, ending_page_number, downloaded_file_path
 
-def load_data_file_in_chunks(chunk_size=200, chunk_overlap=30):
+def load_data_in_chunks(chunk_size=200, chunk_overlap=30):
     '''
     '''
     #Get the pages for selected Chapters (1-5)
-    startinPpage, endingPage, downloaded_path = detect_selected_chapter_pages(1, 5)
+    startingPage, endingPage, downloaded_path = detect_selected_chapter_pages()
     #Load the pdf again for transformers loading requirements
     loader=PyPDFLoader(downloaded_path)
     documents = loader.load()
     #Select the Pages
-    selected_pages = documents[startinPpage : endingPage]
+    selected_pages = documents[startingPage : endingPage]
     splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = splitter.split_documents(selected_pages)
     print("Chunks creation successful.")
     
     return chunks
 
-def create_vector_store(HF_TOKEN, model_name="BAAI/bge-large-en-v1.5", dense_weight=0.6, sparse_weight=0.4):
+def connect_weaviate_vector_store(WEAVIATE_CLUSTER_URL, WEAVIATE_API_KEY, HF_TOKEN, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+    '''
+    '''
+    try:
+        client = weaviate.connect_to_weaviate_cloud(
+            cluster_url = WEAVIATE_CLUSTER_URL,
+            auth_credentials = Auth.api_key(WEAVIATE_API_KEY),
+            headers={
+                "X-HuggingFace-Api-Key": HF_TOKEN
+            },
+        )
+        print("Vector Store connection successful.")
+        embedding_model = HuggingFaceEmbeddings(model_name=model_name)
+        print("Vector Embedding model loading successful.")
+        return client, embedding_model
+    except Exception as e:
+        print(f"Error Connecting to weaviate: {e}")
+
+def upload_data_weaviate_vector_store(weaviate_cloud_client, embedding_model, index_name="HYBRIDRAG"):
     '''
     '''
     #Get the chunks first
-    chunks = load_data_file_in_chunks()
+    chunks = load_data_in_chunks()
     
     #For vector store use chunks to make a dense vector embeddings (without 0s)
-    embeddings = HuggingFaceInferenceAPIEmbeddings(api_key=HF_TOKEN, model_name=model_name)
-    vectorStore = Chroma.from_documents(chunks, embeddings)
-    vectorStore_retriever = vectorStore.as_retriever(search_kwargs={"k":3})
-    
-    #For the keyword searching use chunks to make sparse vector embeddings (with 0s for only matching keywords)
-    keyword_retriever = BM25Retriever.from_documents(chunks)
-    keyword_retriever.k = 3
-    
-    #now combine these retrievers
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[vectorStore_retriever, keyword_retriever], 
-        weights=[dense_weight, sparse_weight]
-        )
-    
+    vector_store = WeaviateVectorStore.from_documents(
+        documents=chunks,
+        embedding=embedding_model,
+        client=weaviate_cloud_client,
+        index_name=index_name,
+    )
     print("Vector Store created.")
     
-    return ensemble_retriever
+def load_retrievers_weaviate(weaviate_cloud_client, embedding_model, COHERE_API_KEY, index_name="HYBRIDRAG", text_key='text', cohere_model="rerank-english-v3.0", alpha=0.5, k=5):
+    '''
+    '''
+    try:
+        
+        vector_store = WeaviateVectorStore(embedding= embedding_model, client=weaviate_cloud_client, index_name=index_name, text_key=text_key)
+        try:
+            retriever = vector_store.as_retriever(search_kwargs={"alpha": 0.5, "k": 5})
+            print("Normal Retriever Created successfully")
+        except Exception as e:
+            print(f"Error Creating Retriever: {e}")
+        compressor = CohereRerank(model=cohere_model, cohere_api_key=COHERE_API_KEY)
+        try:
+            compression_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=retriever
+            )
+            print("Compression Retriever Created successfully")
+        except Exception as e:
+            print(f"Error Creating Compression Retriever: {e}")
+        print("Retriever and Compressor Created successfully")
+        return retriever, compression_retriever
+    except Exception as e:
+        print(f"Error Creating Retriever: {e}")
+
+
 
 def load_quantized_llm_model(model_name="HuggingFaceH4/zephyr-7b-beta"):
     '''
@@ -139,7 +182,7 @@ def load_quantized_llm_model(model_name="HuggingFaceH4/zephyr-7b-beta"):
     #invoke the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name, return_token_type_ids=False)
     tokenizer.bos_token_id = 1
-    print("tockenizer successfully loaded")
+    print("tokenizer successfully loaded")
     
     #invoke the model
     model = AutoModelForCausalLM.from_pretrained(
@@ -148,14 +191,13 @@ def load_quantized_llm_model(model_name="HuggingFaceH4/zephyr-7b-beta"):
         quantization_config=bnb_config,
     )
     
-    print("model and tockenizer loaded successfully.")
+    print("model and tokenizer loaded successfully.")
     
     return model, tokenizer 
 
-def llm_pipeline(model, tokenizer):
-    ensemble_retriever= create_vector_store(HF_TOKEN="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")
+def llm_pipeline(model, tokenizer, max_length=2048):
     
-    #load the llm model and corresponding tockenizer for llm related word or sentence tockenizing
+    #load the llm model and corresponding tokenizer for llm related word or sentence tockenizing
         
     main_pipeline = pipeline(
         "text-generation",
@@ -163,30 +205,30 @@ def llm_pipeline(model, tokenizer):
         tokenizer=tokenizer,
         use_cache=True,
         device_map="auto",
-        max_length=2048,
+        max_length=max_length,
         do_sample=True,
         top_k=5,
+        max_new_tokens=100,
         num_return_sequences=1,
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
-        )
+    )
     
-    return main_pipeline, ensemble_retriever
+    return main_pipeline
 
-def rag_pipeline(model, tockenizer):
+def rag_pipeline(model, tokenizer, retriever, chain_type="stuff"):
     '''
+
     '''
-    #Get the vectore store 
-    
-    pipeline, ensemble_retriever = llm_pipeline(model, tockenizer)
+    pipeline= llm_pipeline(model, tokenizer)
     llm = HuggingFacePipeline(pipeline=pipeline)
     
     
-    hybrid_chain=RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=ensemble_retriever
-        )
+    hybrid_chain = RetrievalQA.from_chain_type(
+        llm=llm, 
+        chain_type=chain_type, 
+        retriever=retriever
+    )
     
     print("Pipeline Ready.")
     return hybrid_chain
