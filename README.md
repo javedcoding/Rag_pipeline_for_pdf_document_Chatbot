@@ -11,6 +11,13 @@ Use the following command to install required libraries of Python in your enviro
 ```
 pip install -r requirements. txt
 ```
+Now we need to set our environment variables fro Credentials of Weaviate cluster url, weaviate api key, huggingface reading token and cohere api key. Giving a demo one below:
+```
+set WEAVIATE_CLUSTER_URL=https://46e.c0.europe-west3.gcp.weaviate.cloud 
+set WEAVIATE_API_KEY=VLTCSNafVUY3V3MGKLQMPAj
+set COHERE_API_KEY=lf9Nlrzb08B2RLXTx8IgK6kBXt
+set HF_TOKEN=hf_WcywCSvBGmtMl
+```
 
 After that run the FastAPI based chatbot being in the folder where the main.py file is situated. A simple Javascript is used to make the workable Chatbot.
 ```
