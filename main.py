@@ -24,22 +24,34 @@ from model import load_quantized_llm_model, rag_pipeline, connect_weaviate_vecto
 
 app = FastAPI()
 
+def get_env_variable(name):
+    """
+    Retrieve an environment variable and validate it.
+    
+    Parameters:
+        name (str): The name of the environment variable.
+        description (str): A human-readable description of the variable.
+        
+    Returns:
+        str: The value of the environment variable if it is set and valid.
+    
+    Raises:
+        ValueError: If the environment variable is not set or invalid.
+    """
+    value = str(os.getenv(name, "")).strip()
+    if not value:
+        raise ValueError(f"{name} must be set. Follow the cmd syntax set $env:ENV_VARIABLE_NAME=AKIA6GBMEVK2WOGW5")
+    return value
+
+
 # Load environment variables
-WEAVIATE_CLUSTER_URL = str(os.getenv("WEAVIATE_CLUSTER_URL")).strip()
-WEAVIATE_API_KEY = str(os.getenv("WEAVIATE_API_KEY")).strip()
-HF_TOKEN = str(os.getenv("HF_TOKEN")).strip()
-COHERE_API_KEY = str(os.getenv("COHERE_API_KEY")).strip()
+WEAVIATE_CLUSTER_URL = get_env_variable("WEAVIATE_CLUSTER_URL")
+WEAVIATE_API_KEY = get_env_variable("WEAVIATE_API_KEY")
+HF_TOKEN = get_env_variable("HF_TOKEN")
+COHERE_API_KEY = get_env_variable("COHERE_API_KEY")
 
-if not WEAVIATE_CLUSTER_URL:
-    raise ValueError("WEAVIATE_CLUSTER_URL must be set. Follow the cmd syntax set $env:ENV_VARIABLE='AKIA6GBMEVKGEC2WOGW5'")
-if not WEAVIATE_API_KEY:
-    raise ValueError("WEAVIATE_API_KEY must be set. Follow the cmd syntax set $env:ENV_VARIABLE='AKIA6GBMEVKGEC2WOGW5'")
-if not COHERE_API_KEY:
-    raise ValueError("COHERE_API_KEY must be set. Follow the cmd syntax set $env:ENV_VARIABLE='AKIA6GBMEVKGEC2WOGW5'")
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN must be set. Follow the cmd syntax set $env:ENV_VARIABLE='AKIA6GBMEVKGEC2WOGW5'")
 
-print(f"WEAVIATE_CLUSTER_URL:{WEAVIATE_CLUSTER_URL}\n WEAVIATE_API_KEY: {WEAVIATE_API_KEY} \n COHERE_API_KEY: {COHERE_API_KEY} \n HF_TOKEN: {HF_TOKEN}")
+#print(f"WEAVIATE_CLUSTER_URL:{WEAVIATE_CLUSTER_URL}\n WEAVIATE_API_KEY: {WEAVIATE_API_KEY} \n COHERE_API_KEY: {COHERE_API_KEY} \n HF_TOKEN: {HF_TOKEN}")
 
 
 
